@@ -1,0 +1,76 @@
+name: Release & Blockchain Attestation
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  release:
+    name: Build, Hash, Stamp & Publish Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Version Tag
+        id: version_info
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Processing release for tag: $TAG"
+
+      - name: Install OpenTimestamps Client
+        run: pip install opentimestamps-client git-ots
+
+      - name: Anchor Git Tag in Bitcoin
+        run: |
+          git ots run || true
+          git push origin 'refs/ots/*:refs/ots/*' || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Package Artifacts
+        run: |
+          mkdir -p dist
+          # Package project source code archive
+          git archive --format=tar.gz --prefix="${{ github.event.repository.name }}-${{ steps.version_info.outputs.tag }}/" HEAD -o "dist/${{ github.event.repository.name }}-${{ steps.version_info.outputs.tag }}.tar.gz"
+
+      - name: Generate Checksums & OpenTimestamps Proof
+        run: |
+          cd dist
+          # 1. Generate unified checksum manifest
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+          # 2. Stamp checksum manifest into Bitcoin blockchain
+          ots stamp SHA256SUMS
+          ls -la
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version_info.outputs.tag }}
+          name: Release ${{ steps.version_info.outputs.tag }}
+          files: |
+            dist/*
+            dist/SHA256SUMS
+            dist/SHA256SUMS.ots
+          generate_release_notes: true
