@@ -1,0 +1,17 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Build artifacts & dependencies
+node_modules/
+dist/
+build/
+target/
+*.pyc
+__pycache__/
+.venv/
+
+# Environment secrets
+.env
+.env.local
+*.local
